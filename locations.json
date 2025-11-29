@@ -1,0 +1,45 @@
+{
+  "areas": {
+    "Kasarani / Roysambu / Zimmerman": {
+      "sub_locations": [
+        { "name": "Kasarani",     "lat": -1.2209, "lon": 36.9012 },
+        { "name": "Roysambu",     "lat": -1.2550, "lon": 36.8565 },
+        { "name": "Zimmerman",    "lat": -1.2640, "lon": 36.8490 }
+      ],
+      "hospital": {
+        "name": "Megalife Hospital", 
+        "phone": "0703 711711", 
+        "lat": -1.2600, 
+        "lon": 36.8500
+      },
+      "police": {
+        "name": "Kasarani Police Station",
+        "phone": "0736 350106",
+        "lat": -1.2204,
+        "lon": 36.8929
+      }
+    },
+    "Westlands / Parklands": {
+      "sub_locations": [
+        { "name": "Westlands", "lat": -1.2700, "lon": 36.8000 },
+        { "name": "Parklands", "lat": -1.2631, "lon": 36.8106 }
+      ],
+      "hospital": {
+        "name": "MP Shah Hospital", 
+        "phone": "+254 111 000 600",
+        "lat": -1.2680,
+        "lon": 36.8050
+      },
+      "police": {
+        "name": "Kilimani Police Station",
+        "phone": "020 2722223",
+        "lat": -1.2690,
+        "lon": 36.8020
+      }
+    }
+  },
+  "general_emergency_hotlines": {
+    "police_control_room": "020 2724154 / 0721 233999",
+    "ambulance_services": ["Kenya Red Cross 020 3950000", "St. John Ambulance 020 2210000"]
+  }
+}
