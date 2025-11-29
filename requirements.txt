@@ -1,5 +1,6 @@
 streamlit
 tensorflow
 numpy
-Pillow
-keras
+pandas
+folium
+streamlit-folium
