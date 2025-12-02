@@ -8,26 +8,32 @@ import folium
 import os
 from streamlit_folium import st_folium
 
-# ----------------- Load model -----------------
+
+# Get folder of current script
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Build path to model in parent folder
+MODEL_PATH = os.path.join(BASE_DIR, "..", "emergency_cnn_model (1).keras")
+
 try:
-    model = tf.keras.models.load_model("emergency_cnn_model (1).keras")
+    model = tf.keras.models.load_model(MODEL_PATH)
     st.success("Model loaded successfully!")
 except Exception as e:
     st.warning(f"Could not load model. Using dummy predictions.\nError: {e}")
-    model = None  # dummy mode
+    model = None  # fallback
 
 labels = ["Accident", "HeavyTraffic", "NormalRoadActivity"]
 
 # ----------------- Load location data (fixed path) -----------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))   # folder containing app.py
-file_path = os.path.join(BASE_DIR, "..", "locations.json")  # go up 1 folder
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))  
+file_path = os.path.join(BASE_DIR, "..", "locations.json")  
 
 try:
     with open(file_path, "r") as f:
         location_data = json.load(f)
     st.success("Location data loaded successfully!")
 except FileNotFoundError:
-    st.error(f"❌ locations.json not found.\nTried path: {file_path}")
+    st.error(f" locations.json not found.\nTried path: {file_path}")
     st.stop()
 
 st.title("Emergency Response: Road Incident Detection")
@@ -58,7 +64,7 @@ if uploaded_file:
         pred = pred / pred.sum()
 
     final = labels[np.argmax(pred)]
-    st.subheader(f"Prediction: {final}")
+    st.subheader(f"Result: {final}")
 
     # ----------------- Confidence chart -----------------
     df = pd.DataFrame({"Label": labels, "Confidence": pred})
