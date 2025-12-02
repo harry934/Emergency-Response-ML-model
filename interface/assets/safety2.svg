@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200">
+  <rect width="100%" height="100%" fill="#fff"/>
+  <g transform="translate(150,90)">
+    <rect x="-80" y="-30" width="160" height="60" rx="8" fill="#0078D4"/>
+    <text x="0" y="8" font-family="Segoe UI, Arial" font-size="20" fill="#fff" text-anchor="middle">Fast Response</text>
+  </g>
+  <text x="150" y="180" font-family="Segoe UI, Arial" font-size="14" fill="#333" text-anchor="middle">Stay Alert. Save Lives.</text>
+</svg>

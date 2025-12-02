@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="120" viewBox="0 0 400 120">
+  <defs>
+    <linearGradient id="g" x1="0" x2="1">
+      <stop offset="0" stop-color="#0078D4"/>
+      <stop offset="1" stop-color="#00B294"/>
+    </linearGradient>
+  </defs>
+  <rect rx="12" width="400" height="120" fill="#ffffff" />
+  <g transform="translate(18,12)">
+    <circle cx="48" cy="48" r="48" fill="url(#g)" />
+    <text x="48" y="60" font-family="Segoe UI, Arial" font-size="40" fill="#fff" text-anchor="middle">ER</text>
+    <g transform="translate(120,30)">
+      <text x="0" y="22" font-family="Segoe UI, Arial" font-size="24" fill="#222">Emergency Response</text>
+      <text x="0" y="48" font-family="Segoe UI, Arial" font-size="14" fill="#555">Road Incident Detection Dashboard</text>
+    </g>
+  </g>
+</svg>
