@@ -13,7 +13,7 @@ from streamlit_folium import st_folium
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Build path to model in parent folder
-MODEL_PATH = os.path.join(BASE_DIR, "..", "emergency_cnn_model (1).keras")
+MODEL_PATH = os.path.join(BASE_DIR, "..", "model.keras")
 
 try:
     model = tf.keras.models.load_model(MODEL_PATH)
