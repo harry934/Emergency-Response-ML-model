@@ -9,31 +9,26 @@ import os
 from streamlit_folium import st_folium
 
 
-# Get folder of current script
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Build path to model in parent folder
-MODEL_PATH = os.path.join(BASE_DIR, "..", "model.keras")
+MODEL_PATH = os.path.join(BASE_DIR, "emergency_cnn_model.keras")
+LOCATION_PATH = os.path.join(BASE_DIR, "locations.json")
 
 try:
     model = tf.keras.models.load_model(MODEL_PATH)
     st.success("Model loaded successfully!")
 except Exception as e:
     st.warning(f"Could not load model. Using dummy predictions.\nError: {e}")
-    model = None  # fallback
+    model = None
 
-labels = ["Accident", "HeavyTraffic", "NormalRoadActivity"]
-
-# ----------------- Load location data (fixed path) -----------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))  
-file_path = os.path.join(BASE_DIR, "..", "locations.json")  
-
+# Load locations
+import json
 try:
-    with open(file_path, "r") as f:
+    with open(LOCATION_PATH, "r") as f:
         location_data = json.load(f)
-    st.success("Location data loaded successfully!")
-except FileNotFoundError:
-    st.error(f" locations.json not found.\nTried path: {file_path}")
+    st.success("Locations loaded successfully!")
+except Exception as e:
+    st.error(f"Could not load locations.json\nError: {e}")
     st.stop()
 
 st.title("Emergency Response: Road Incident Detection")
