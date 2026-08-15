@@ -1,6 +1,11 @@
-streamlit
-tensorflow
-numpy
-pandas
-folium
-streamlit-folium
+streamlit==1.51.0
+tensorflow==2.20.0
+numpy==2.2.6
+pandas==2.3.3
+folium==0.20.0
+streamlit-folium==0.25.3
+Pillow==12.0.0
+
+# Testing
+pytest>=8.3.0
+pytest-cov>=6.1.0

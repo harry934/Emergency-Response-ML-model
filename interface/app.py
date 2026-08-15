@@ -1,188 +1,218 @@
-import streamlit as st
-import numpy as np
-import tensorflow as tf
-from tensorflow.keras.preprocessing import image
-import pandas as pd
-import json
-import folium
 import os
-from streamlit_folium import st_folium
 import time
 
+import folium
+import numpy as np
+import pandas as pd
+import streamlit as st
+from streamlit_folium import st_folium
 
-# Get folder of current script
+from core.dispatcher import get_dispatch_info
+from core.location_loader import load_locations
+from core.predictor import LABELS, load_model, predict_image
+from core.preprocessor import preprocess_image
+from core.render import build_confidence_html
+
+# ---------------------------------------------------------------------------
+# Page configuration (must be the first Streamlit call)
+# ---------------------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# Build path to model in parent folder
+LOGO_PATH = os.path.join(BASE_DIR, "assets", "logo.svg")
 MODEL_PATH = os.path.join(BASE_DIR, "..", "model.keras")
+LOCATIONS_PATH = os.path.join(BASE_DIR, "..", "locations.json")
+
+st.set_page_config(
+    page_title="Emergency Response | Road Incident Detection",
+    page_icon="🚨",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ---------------------------------------------------------------------------
+# Sidebar — branding + settings
+# ---------------------------------------------------------------------------
+with st.sidebar:
+    if os.path.exists(LOGO_PATH):
+        with open(LOGO_PATH, "r", encoding="utf-8") as _f:
+            st.markdown(_f.read(), unsafe_allow_html=True)
+    st.markdown("---")
+    st.subheader("Settings")
+    confidence_threshold = st.slider(
+        "Confidence threshold",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.5,
+        step=0.05,
+        help="Minimum confidence required to trigger an alert. "
+             "Predictions below this are labelled 'Uncertain'.",
+    )
+    st.markdown("---")
+    st.caption("Emergency Response: Road Incident Detection")
+
+# ---------------------------------------------------------------------------
+# Load model
+# ---------------------------------------------------------------------------
+@st.cache_resource(show_spinner=False)
+def _load_model(path: str):
+    return load_model(path)
+
+
+model = None
+with st.spinner("Loading model…"):
+    try:
+        model = _load_model(MODEL_PATH)
+        _msg = st.empty()
+        _msg.success("Model loaded successfully!")
+        time.sleep(1.5)
+        _msg.empty()
+    except Exception as exc:
+        st.warning(f"Could not load model — running in demo mode.\n\nError: {exc}")
+
+# ---------------------------------------------------------------------------
+# Load location data
+# ---------------------------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def _load_locations(path: str):
+    return load_locations(path)
+
 
 try:
-    model = tf.keras.models.load_model(MODEL_PATH)
-    _mdl_msg = st.empty()
-    _mdl_msg.success("Model loaded successfully!")
-    time.sleep(2)
-    _mdl_msg.empty()
-except Exception as e:
-    st.warning(f"Could not load model. Using dummy predictions.\nError: {e}")
-    model = None  # fallback
-
-labels = ["Accident", "HeavyTraffic", "NormalRoadActivity"]
-
-# ----------------- Load location data (fixed path) -----------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))  
-file_path = os.path.join(BASE_DIR, "..", "locations.json")  
-
-try:
-    with open(file_path, "r") as f:
-        location_data = json.load(f)
-    _loc_msg = st.empty()
-    _loc_msg.success("Location data loaded successfully!")
-    time.sleep(2)
-    _loc_msg.empty()
+    location_data = _load_locations(LOCATIONS_PATH)
 except FileNotFoundError:
-    st.error(f" locations.json not found.\nTried path: {file_path}")
+    st.error(f"locations.json not found at: {LOCATIONS_PATH}")
     st.stop()
 
+# ---------------------------------------------------------------------------
+# Session state — incident history
+# ---------------------------------------------------------------------------
+if "history" not in st.session_state:
+    st.session_state.history: list[dict] = []
+
+# ---------------------------------------------------------------------------
+# Main UI
+# ---------------------------------------------------------------------------
 st.title("Emergency Response: Road Incident Detection")
+st.markdown(
+    "Upload a road camera image to classify traffic conditions and, when an "
+    "accident is detected, surface nearest emergency services automatically."
+)
 
-# ----------------- Select area and sub-location -----------------
-selected_area = st.selectbox("Select Major Area", list(location_data["areas"].keys()))
-area_info = location_data["areas"][selected_area]
+col_left, col_right = st.columns([1, 1], gap="large")
 
-sub_locations = [loc["name"] for loc in area_info["sub_locations"]]
-selected_sub_location_name = st.selectbox("Select Sub-Location / CCTV Point", sub_locations)
-selected_sub_location = next(loc for loc in area_info["sub_locations"] if loc["name"] == selected_sub_location_name)
+with col_left:
+    # Area + CCTV selector
+    selected_area = st.selectbox("Select Major Area", list(location_data["areas"].keys()))
+    area_info = location_data["areas"][selected_area]
 
-# ----------------- Upload road image -----------------
-uploaded_file = st.file_uploader("Upload a road image...", type=["jpg", "jpeg", "png"])
+    sub_location_names = [loc["name"] for loc in area_info["sub_locations"]]
+    selected_sub_name = st.selectbox("Select Sub-Location / CCTV Point", sub_location_names)
+    selected_sub = next(
+        loc for loc in area_info["sub_locations"] if loc["name"] == selected_sub_name
+    )
+
+    # Image uploader
+    uploaded_file = st.file_uploader(
+        "Upload a road image", type=["jpg", "jpeg", "png"], label_visibility="visible"
+    )
+
+with col_right:
+    if uploaded_file:
+        st.image(uploaded_file, caption="Uploaded Image", use_container_width=True)
+
+# ---------------------------------------------------------------------------
+# Inference + dispatch
+# ---------------------------------------------------------------------------
 if uploaded_file:
-    st.image(uploaded_file, caption="Uploaded Image", use_container_width=True)
+    with st.spinner("Analysing image…"):
+        try:
+            img_array = preprocess_image(uploaded_file)
+        except ValueError as exc:
+            st.error(f"Could not process image: {exc}")
+            st.stop()
 
-    # Preprocess image
-    img = image.load_img(uploaded_file, target_size=(224, 224))
-    img_array = np.array(img) / 255.0
-    img_array = np.expand_dims(img_array, 0)
+        label, probs = predict_image(img_array, model, threshold=confidence_threshold)
 
-    # ----------------- Predict -----------------
-    if model:
-        pred = model.predict(img_array)[0]
-    else:
-        pred = np.random.rand(3)
-        pred = pred / pred.sum()
+    st.subheader(f"Result: {label}")
 
-    final = labels[np.argmax(pred)]
-    st.subheader(f"Result: {final}")
+    # Confidence bars
+    st.markdown(build_confidence_html(LABELS, probs), unsafe_allow_html=True)
+    st.markdown("")
 
-    # ----------------- Confidence chart (styled progress bars) -----------------
-    def _render_confidence_bars(labels, preds):
-        # preds: array-like floats 0..1 — renders animated, styled bars with risk badges
-        css = """
-        <style>
-        .pred-row{display:flex;align-items:center;margin:12px 0}
-        .pred-label{width:160px;font-weight:700;color:#222;font-size:14px}
-        .pred-bar{flex:1;height:22px;background:#f3f4f6;border-radius:12px;overflow:hidden;margin:0 12px;position:relative}
-        .pred-fill{height:100%;border-radius:12px 0 0 12px;box-shadow:0 2px 6px rgba(0,0,0,0.08);transition:width 800ms ease}
-        .pred-pct{width:64px;text-align:right;font-family:monospace;color:#111;font-size:13px}
-        .risk-badge{display:inline-flex;align-items:center;gap:8px;margin-left:10px}
-        .risk-dot{width:12px;height:12px;border-radius:50%}
-        .legend{display:flex;gap:12px;margin-top:10px;align-items:center}
-        .legend .item{display:flex;gap:8px;align-items:center;font-size:13px;color:#555}
-        .bar-inner-text{position:absolute;left:8px;top:0;bottom:0;display:flex;align-items:center;color:#fff;font-weight:600;font-size:12px;padding-left:6px}
-        </style>
-        """
+    # Dispatch
+    dispatch = get_dispatch_info(label, area_info, location_data["general_emergency_hotlines"])
 
-        # base colors per label
-        base_colors = {
-            "Accident": "#e53935",
-            "HeavyTraffic": "#fb8c00",
-            "NormalRoadActivity": "#43a047",
-        }
+    if dispatch:
+        st.error("⚠️ Accident detected! Dispatching emergency services…")
 
-        def risk_level_color(pct):
-            if pct >= 70:
-                return "#b71c1c", "High"
-            if pct >= 40:
-                return "#f57c00", "Medium"
-            return "#2e7d32", "Low"
-
-        rows = [css, "<div>"]
-        for lab, p in zip(labels, preds):
-            pct = int(round(float(p) * 100))
-            base = base_colors.get(lab, "#2196f3")
-            # compute risk color and label
-            rcolor, rlabel = risk_level_color(pct)
-            # use a subtle gradient for fill
-            fill_style = f"background: linear-gradient(90deg, {base}, {rcolor}); width:{pct}%;"
-            # show percentage inside the bar when enough space (pct > 10)
-            inner_text = f"{pct}%" if pct > 10 else ""
-            # accessible tooltip via title
-            title = f"{lab}: {pct}% — Risk: {rlabel}"
-            rows.append(
-                f'<div class="pred-row" title="{title}">'
-                f'<div class="pred-label">{lab.replace("NormalRoadActivity","Normal Activity")}</div>'
-                f'<div class="pred-bar"><div class="pred-fill" style="{fill_style}"><div class="bar-inner-text">{inner_text}</div></div></div>'
-                f'<div class="pred-pct">{pct}%</div>'
-                f'<div class="risk-badge"><div class="risk-dot" style="background:{rcolor}"></div><div style="color:#444;font-size:13px">{rlabel}</div></div>'
-                f'</div>'
+        info_col, map_col = st.columns([1, 1], gap="large")
+        with info_col:
+            st.markdown(
+                f"**Nearest Hospital:** {dispatch['hospital']['name']}  \n"
+                f"📞 {dispatch['hospital']['phone']}"
             )
+            st.markdown(
+                f"**Nearest Police Station:** {dispatch['police']['name']}  \n"
+                f"📞 {dispatch['police']['phone']}"
+            )
+            st.markdown("**General Emergency Hotlines**")
+            hotlines = dispatch["hotlines"]
+            st.markdown(f"- Police Control Room: {hotlines['police_control_room']}")
+            for amb in hotlines["ambulance_services"]:
+                st.markdown(f"- {amb}")
 
-        # legend
-        rows.append('<div class="legend"><div class="item"><div class="risk-dot" style="background:#2e7d32"></div>Low</div><div class="item"><div class="risk-dot" style="background:#f57c00"></div>Medium</div><div class="item"><div class="risk-dot" style="background:#b71c1c"></div>High</div></div>')
-
-        rows.append("</div>")
-        html = "\n".join(rows)
-        st.markdown(html, unsafe_allow_html=True)
-
-    _render_confidence_bars(labels, pred)
-
-    # ----------------- Dispatch info + map -----------------
-    if final == "Accident":
-        st.error("⚠️ Accident detected! Dispatching emergency services...")
-
-        st.write(f"Nearest Hospital: **{area_info['hospital']['name']}** — Call: {area_info['hospital']['phone']}")
-        st.write(f"Nearest Police Station: **{area_info['police']['name']}** — Call: {area_info['police']['phone']}")
-        st.write("General emergency hotlines:")
-        st.write(f"- Police Control Room: {location_data['general_emergency_hotlines']['police_control_room']}")
-        st.write(f"- Ambulance Services: {', '.join(location_data['general_emergency_hotlines']['ambulance_services'])}")
-
-        # ----------------- Display map -----------------
-        map_center = [selected_sub_location["lat"], selected_sub_location["lon"]]
-        m = folium.Map(location=map_center, zoom_start=14)
-
-        # CCTV marker
-        folium.Marker(
-            location=map_center,
-            popup=f"CCTV: {selected_sub_location_name}",
-            icon=folium.Icon(color="red", icon="camera")
-        ).add_to(m)
-
-        # Hospital marker
-        folium.Marker(
-            location=[area_info["hospital"]["lat"], area_info["hospital"]["lon"]],
-            popup=f"Hospital: {area_info['hospital']['name']}",
-            icon=folium.Icon(color="green", icon="plus-sign")
-        ).add_to(m)
-
-        # Police marker
-        folium.Marker(
-            location=[area_info["police"]["lat"], area_info["police"]["lon"]],
-            popup=f"Police: {area_info['police']['name']}",
-            icon=folium.Icon(color="blue", icon="info-sign")
-        ).add_to(m)
-
-        # Lines to CCTV
-        folium.PolyLine(
-            locations=[[area_info["hospital"]["lat"], area_info["hospital"]["lon"]], map_center],
-            color="green", weight=3, opacity=0.8
-        ).add_to(m)
-
-        folium.PolyLine(
-            locations=[[area_info["police"]["lat"], area_info["police"]["lon"]], map_center],
-            color="blue", weight=3, opacity=0.8
-        ).add_to(m)
-
-        st.subheader("Map of CCTV and Nearest Emergency Units")
-        st_folium(m, width=700, height=500)
-
+        with map_col:
+            map_center = [selected_sub["lat"], selected_sub["lon"]]
+            m = folium.Map(location=map_center, zoom_start=14)
+            folium.Marker(
+                map_center,
+                popup=f"CCTV: {selected_sub_name}",
+                icon=folium.Icon(color="red", icon="camera"),
+            ).add_to(m)
+            folium.Marker(
+                [dispatch["hospital"]["lat"], dispatch["hospital"]["lon"]],
+                popup=f"Hospital: {dispatch['hospital']['name']}",
+                icon=folium.Icon(color="green", icon="plus-sign"),
+            ).add_to(m)
+            folium.Marker(
+                [dispatch["police"]["lat"], dispatch["police"]["lon"]],
+                popup=f"Police: {dispatch['police']['name']}",
+                icon=folium.Icon(color="blue", icon="info-sign"),
+            ).add_to(m)
+            folium.PolyLine(
+                [[dispatch["hospital"]["lat"], dispatch["hospital"]["lon"]], map_center],
+                color="green", weight=3, opacity=0.8,
+            ).add_to(m)
+            folium.PolyLine(
+                [[dispatch["police"]["lat"], dispatch["police"]["lon"]], map_center],
+                color="blue", weight=3, opacity=0.8,
+            ).add_to(m)
+            st.subheader("Dispatch Map")
+            st_folium(m, width=None, height=420, returned_objects=[])
+    elif label == "Uncertain":
+        st.warning(
+            f"Confidence below threshold ({confidence_threshold:.0%}). "
+            "Adjust the slider in the sidebar or upload a clearer image."
+        )
     else:
         st.info("No emergency dispatch required.")
+
+    # Record in incident history
+    st.session_state.history.append(
+        {
+            "File": uploaded_file.name,
+            "Area": selected_area,
+            "CCTV Point": selected_sub_name,
+            "Prediction": label,
+            "Confidence": f"{float(np.max(probs)):.1%}",
+        }
+    )
+
+# ---------------------------------------------------------------------------
+# Incident history
+# ---------------------------------------------------------------------------
+if st.session_state.history:
+    with st.expander("Incident History (this session)", expanded=False):
+        df = pd.DataFrame(st.session_state.history)
+        st.dataframe(df, use_container_width=True)
+        csv = df.to_csv(index=False).encode("utf-8")
+        st.download_button("Download CSV", csv, "incident_history.csv", "text/csv")
