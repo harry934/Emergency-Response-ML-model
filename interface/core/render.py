@@ -1,88 +1,136 @@
-"""HTML rendering helpers — confidence bars and risk badges."""
+"""UI rendering helpers — global styles and confidence display."""
 from __future__ import annotations
 
 import math
 
 BASE_COLORS: dict[str, str] = {
-    "Accident": "#e53935",
-    "HeavyTraffic": "#fb8c00",
-    "NormalRoadActivity": "#43a047",
+    "Accident": "#c62828",
+    "HeavyTraffic": "#e65100",
+    "NormalRoadActivity": "#2e7d32",
 }
 
 _DISPLAY_NAMES: dict[str, str] = {
     "Accident": "Accident",
     "HeavyTraffic": "Heavy Traffic",
     "NormalRoadActivity": "Normal Activity",
+    "Uncertain": "Uncertain",
 }
 
-_CSS = """
-<style>
-.pred-row{display:flex;align-items:center;margin:12px 0}
-.pred-label{width:160px;font-weight:700;color:#222;font-size:14px}
-.pred-bar{flex:1;height:22px;background:#f3f4f6;border-radius:12px;overflow:hidden;margin:0 12px;position:relative}
-.pred-fill{height:100%;border-radius:12px 0 0 12px;box-shadow:0 2px 6px rgba(0,0,0,0.08);transition:width 800ms ease}
-.pred-pct{width:64px;text-align:right;font-family:monospace;color:#111;font-size:13px}
-.risk-badge{display:inline-flex;align-items:center;gap:8px;margin-left:10px}
-.risk-dot{width:12px;height:12px;border-radius:50%}
-.legend{display:flex;gap:12px;margin-top:10px;align-items:center}
-.legend .item{display:flex;gap:8px;align-items:center;font-size:13px;color:#555}
-.bar-inner-text{position:absolute;left:8px;top:0;bottom:0;display:flex;align-items:center;
-  color:#fff;font-weight:600;font-size:12px;padding-left:6px}
-</style>
-"""
+LABEL_DISPLAY = _DISPLAY_NAMES
 
 
-def _risk_level(pct: int) -> tuple[str, str]:
-    """Return ``(colour_hex, label)`` for a given integer percentage."""
-    if pct >= 70:
-        return "#b71c1c", "High"
-    if pct >= 40:
-        return "#f57c00", "Medium"
-    return "#2e7d32", "Low"
+def get_app_styles() -> str:
+    """Return global CSS for a clean, neutral application layout."""
+    return """
+    <style>
+      .block-container { padding-top: 1.5rem; max-width: 1100px; }
+      [data-testid="stSidebar"] { background-color: #f8f9fa; }
+      [data-testid="stSidebar"] .block-container { padding-top: 1.25rem; }
+      .app-header { margin-bottom: 1.5rem; }
+      .app-title {
+        font-size: 1.75rem;
+        font-weight: 600;
+        color: #1a1a1a;
+        margin: 0 0 0.25rem 0;
+        letter-spacing: -0.02em;
+      }
+      .app-subtitle {
+        font-size: 0.95rem;
+        color: #5f6368;
+        margin: 0;
+        line-height: 1.5;
+      }
+      .section-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #5f6368;
+        margin: 0 0 0.75rem 0;
+      }
+      .status-accident {
+        padding: 0.875rem 1rem;
+        border-left: 4px solid #c62828;
+        background: #fce8e6;
+        color: #3c4043;
+        margin: 1rem 0;
+        font-size: 0.95rem;
+      }
+      .status-normal {
+        padding: 0.875rem 1rem;
+        border-left: 4px solid #2e7d32;
+        background: #e8f5e9;
+        color: #3c4043;
+        margin: 1rem 0;
+        font-size: 0.95rem;
+      }
+      .status-uncertain {
+        padding: 0.875rem 1rem;
+        border-left: 4px solid #e65100;
+        background: #fff3e0;
+        color: #3c4043;
+        margin: 1rem 0;
+        font-size: 0.95rem;
+      }
+      .contact-block { margin-bottom: 1rem; }
+      .contact-block h4 {
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: #5f6368;
+        margin: 0 0 0.25rem 0;
+      }
+      .contact-block p {
+        margin: 0;
+        color: #202124;
+        font-size: 0.95rem;
+        line-height: 1.5;
+      }
+      .score-row {
+        display: grid;
+        grid-template-columns: 140px 1fr 48px;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+      .score-label { font-size: 0.875rem; color: #3c4043; }
+      .score-track {
+        height: 8px;
+        background: #e8eaed;
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .score-fill { height: 100%; border-radius: 2px; }
+      .score-pct {
+        font-size: 0.8rem;
+        color: #5f6368;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+    """
+
+
+def format_label(label: str) -> str:
+    """Return a human-readable label for a prediction class."""
+    return _DISPLAY_NAMES.get(label, label)
 
 
 def build_confidence_html(labels: list[str], probs: list[float] | "np.ndarray") -> str:  # noqa: F821
-    """Build an HTML string for the confidence bar visualisation.
-
-    Parameters
-    ----------
-    labels:
-        Ordered list of class names (length 3).
-    probs:
-        Corresponding probability values (each in ``[0, 1]``).
-
-    Returns
-    -------
-    str
-        Self-contained HTML / CSS string safe to pass to
-        ``st.markdown(..., unsafe_allow_html=True)``.
-    """
-    rows: list[str] = [_CSS, "<div>"]
+    """Build a minimal HTML confidence breakdown (no gradients or badges)."""
+    rows: list[str] = ['<div class="confidence-scores">']
     for lab, p in zip(labels, probs):
-        pct = int(math.floor(float(p) * 100 + 0.5))  # round-half-up
-        base = BASE_COLORS.get(lab, "#2196f3")
-        rcolor, rlabel = _risk_level(pct)
-        fill_style = f"background:linear-gradient(90deg,{base},{rcolor});width:{pct}%;"
-        inner_text = f"{pct}%" if pct > 10 else ""
-        display_name = _DISPLAY_NAMES.get(lab, lab)
-        title = f"{lab}: {pct}% — Risk: {rlabel}"
+        pct = int(math.floor(float(p) * 100 + 0.5))
+        color = BASE_COLORS.get(lab, "#5f6368")
+        name = _DISPLAY_NAMES.get(lab, lab)
         rows.append(
-            f'<div class="pred-row" title="{title}">'
-            f'<div class="pred-label">{display_name}</div>'
-            f'<div class="pred-bar"><div class="pred-fill" style="{fill_style}">'
-            f'<div class="bar-inner-text">{inner_text}</div></div></div>'
-            f'<div class="pred-pct">{pct}%</div>'
-            f'<div class="risk-badge"><div class="risk-dot" style="background:{rcolor}"></div>'
-            f'<div style="color:#444;font-size:13px">{rlabel}</div></div>'
+            f'<div class="score-row">'
+            f'<span class="score-label">{name}</span>'
+            f'<div class="score-track"><div class="score-fill" '
+            f'style="width:{pct}%;background:{color}"></div></div>'
+            f'<span class="score-pct">{pct}%</span>'
             f"</div>"
         )
-
-    rows.append(
-        '<div class="legend">'
-        '<div class="item"><div class="risk-dot" style="background:#2e7d32"></div>Low</div>'
-        '<div class="item"><div class="risk-dot" style="background:#f57c00"></div>Medium</div>'
-        '<div class="item"><div class="risk-dot" style="background:#b71c1c"></div>High</div>'
-        "</div>"
-    )
     rows.append("</div>")
     return "\n".join(rows)
