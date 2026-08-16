@@ -86,7 +86,7 @@ class TestAppStartup:
     def test_title_is_present(self):
         with _app_context([0.05, 0.05, 0.90]) as at:
             markdown = [m.value for m in at.markdown]
-            assert any("Road Incident Detection" in m for m in markdown)
+            assert any("Emergency Response System" in m for m in markdown)
 
     def test_no_error_on_startup(self):
         with _app_context([0.05, 0.05, 0.90]) as at:
@@ -174,8 +174,8 @@ class TestAccidentResult:
 
     def test_dispatch_map_section_shown(self):
         with _app_context([0.95, 0.03, 0.02], uploaded=True) as at:
-            markdown = [m.value for m in at.markdown]
-            assert any("Response map" in m for m in markdown)
+            subheaders = [s.value for s in at.subheader]
+            assert any("Response map" in s for s in subheaders)
 
 
 @skip_no_apptest

@@ -23,37 +23,42 @@ def get_app_styles() -> str:
     """Return global CSS for a clean, neutral application layout."""
     return """
     <style>
-      .block-container { padding-top: 1.5rem; max-width: 1100px; }
-      [data-testid="stSidebar"] { background-color: #f8f9fa; }
-      [data-testid="stSidebar"] .block-container { padding-top: 1.25rem; }
-      .app-header { margin-bottom: 1.5rem; }
-      .app-title {
-        font-size: 1.75rem;
+      #MainMenu, footer, header { visibility: hidden; }
+      .block-container { padding-top: 0.5rem; max-width: 1200px; }
+      .top-bar {
+        background: #1a2332;
+        color: #ffffff;
+        padding: 1.1rem 1.5rem;
+        margin: -1rem -1rem 1.5rem -1rem;
+        border-bottom: 3px solid #2563eb;
+      }
+      .top-bar h1 {
+        font-size: 1.35rem;
         font-weight: 600;
-        color: #1a1a1a;
-        margin: 0 0 0.25rem 0;
-        letter-spacing: -0.02em;
-      }
-      .app-subtitle {
-        font-size: 0.95rem;
-        color: #5f6368;
         margin: 0;
-        line-height: 1.5;
+        color: #ffffff;
       }
-      .section-label {
+      .top-bar p {
+        font-size: 0.875rem;
+        margin: 0.25rem 0 0 0;
+        color: #94a3b8;
+      }
+      .status-pill {
+        display: inline-block;
+        padding: 0.2rem 0.6rem;
+        border-radius: 4px;
         font-size: 0.75rem;
         font-weight: 600;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: #5f6368;
-        margin: 0 0 0.75rem 0;
+        margin-top: 0.5rem;
       }
+      .status-pill.ready { background: #166534; color: #dcfce7; }
+      .status-pill.demo { background: #92400e; color: #fef3c7; }
       .status-accident {
         padding: 0.875rem 1rem;
         border-left: 4px solid #c62828;
         background: #fce8e6;
         color: #3c4043;
-        margin: 1rem 0;
+        margin: 0.5rem 0 1rem 0;
         font-size: 0.95rem;
       }
       .status-normal {
@@ -61,7 +66,7 @@ def get_app_styles() -> str:
         border-left: 4px solid #2e7d32;
         background: #e8f5e9;
         color: #3c4043;
-        margin: 1rem 0;
+        margin: 0.5rem 0 1rem 0;
         font-size: 0.95rem;
       }
       .status-uncertain {
@@ -69,7 +74,7 @@ def get_app_styles() -> str:
         border-left: 4px solid #e65100;
         background: #fff3e0;
         color: #3c4043;
-        margin: 1rem 0;
+        margin: 0.5rem 0 1rem 0;
         font-size: 0.95rem;
       }
       .contact-block { margin-bottom: 1rem; }
@@ -108,7 +113,26 @@ def get_app_styles() -> str:
         text-align: right;
         font-variant-numeric: tabular-nums;
       }
+      div[data-testid="stMetric"] {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 0.75rem 1rem;
+      }
     </style>
+    """
+
+
+def build_header_html(model_ready: bool) -> str:
+    """Build the top navigation/header bar."""
+    status_class = "ready" if model_ready else "demo"
+    status_text = "Model ready" if model_ready else "Demo mode"
+    return f"""
+    <div class="top-bar">
+      <h1>Emergency Response System</h1>
+      <p>Road incident detection for Nairobi CCTV cameras</p>
+      <span class="status-pill {status_class}">{status_text}</span>
+    </div>
     """
 
 
