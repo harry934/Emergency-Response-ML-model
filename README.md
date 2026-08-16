@@ -143,7 +143,7 @@ venv\Scripts\activate
 # macOS / Linux
 source venv/bin/activate
 
-# 3. Install dependencies
+# 3. Install all dependencies (including test tools)
 pip install -r requirements.txt
 ```
 
@@ -153,7 +153,13 @@ pip install -r requirements.txt
 streamlit run interface/app.py
 ```
 
-The app will open at `http://localhost:8501` in your browser.
+The app opens at `http://localhost:8501` in your browser automatically.
+
+**Sidebar controls**
+
+| Control | Purpose |
+|---|---|
+| Confidence threshold slider | Minimum probability required before an alert fires. Predictions below this show "Uncertain" instead of triggering dispatch. Default 0.50 (50%). |
 
 **GitHub Codespaces:** The dev container in `.devcontainer/devcontainer.json` automatically installs dependencies and starts the Streamlit server on port 8501 when you open the repo in Codespaces.
 
@@ -179,16 +185,37 @@ The app will open at `http://localhost:8501` in your browser.
 ```
 Emergency-Response-ML-model/
 ├── .devcontainer/
-│   └── devcontainer.json        # GitHub Codespaces configuration
+│   └── devcontainer.json           # GitHub Codespaces configuration
 ├── interface/
-│   ├── app.py                   # Main Streamlit application
+│   ├── app.py                      # Thin Streamlit UI (calls core modules)
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── preprocessor.py         # Image → normalised (1,224,224,3) array
+│   │   ├── predictor.py            # Model loading and inference
+│   │   ├── dispatcher.py           # Accident → dispatch dict logic
+│   │   ├── location_loader.py      # Load + validate locations.json
+│   │   └── render.py               # Confidence bar HTML generation
 │   └── assets/
-│       ├── logo.svg             # Project logo / branding
-│       ├── safety1.svg          # "Drive Safely" safety graphic
-│       └── safety2.svg          # "Fast Response" safety graphic
-├── locations.json               # Nairobi CCTV, hospital, police coordinates
-├── model.keras                  # Trained MobileNetV2 model (~29.5 MB)
-├── requirements.txt             # Python dependencies
+│       ├── logo.svg                # Project logo (shown in sidebar)
+│       ├── safety1.svg             # "Drive Safely" graphic
+│       └── safety2.svg             # "Fast Response" graphic
+├── tests/
+│   ├── conftest.py                 # Shared fixtures (mock model, images, locations)
+│   ├── unit/
+│   │   ├── test_preprocessor.py
+│   │   ├── test_predictor.py
+│   │   ├── test_dispatcher.py
+│   │   ├── test_location_loader.py
+│   │   └── test_confidence_bars.py
+│   ├── integration/
+│   │   ├── test_model_loading.py
+│   │   └── test_end_to_end.py
+│   └── ui/
+│       └── test_app_ui.py
+├── locations.json                  # Nairobi CCTV, hospital, police coordinates
+├── model.keras                     # Trained MobileNetV2 model (~29.5 MB)
+├── pytest.ini                      # pytest + coverage configuration
+├── requirements.txt                # Pinned Python dependencies
 └── README.md
 ```
 
@@ -271,42 +298,50 @@ tests/
 
 ### Running Tests
 
+`pytest` and `pytest-cov` are already in `requirements.txt`, so they are installed when you run `pip install -r requirements.txt`.
+
 ```bash
-# Install test dependencies
-pip install pytest pytest-cov
+# Run the full test suite (unit + integration + UI)
+python -m pytest
 
-# Run all tests
-pytest
+# Run with a visible coverage report in the terminal
+python -m pytest --cov=interface/core --cov-report=term-missing
 
-# Run with coverage report
-pytest --cov=interface --cov-report=term-missing
+# Run only the fast unit tests (no model needed, completes in ~3 s)
+python -m pytest tests/unit/ -v
 
-# Run only unit tests
-pytest tests/unit/
+# Run integration tests (loads model.keras — takes ~60-90 s first time)
+python -m pytest tests/integration/ -v
 
-# Run only integration tests
-pytest tests/integration/
+# Run UI tests (Streamlit AppTest — patches the model, no GPU needed)
+python -m pytest tests/ui/ -v
 
-# Run only UI tests
-pytest tests/ui/
+# Run a single test file
+python -m pytest tests/unit/test_preprocessor.py -v
 
-# Run a specific test file
-pytest tests/unit/test_preprocessor.py -v
+# Skip slow integration tests during development
+python -m pytest -m "not integration" -v
+
+# Show only failures (quiet mode)
+python -m pytest -q --tb=short
 ```
+
+> **Windows note:** use `python -m pytest` rather than bare `pytest` if the `pytest.exe` script directory is not on your `PATH`.
 
 ### Test Coverage
 
-Target coverage for core logic modules:
+Achieved coverage on core logic modules (as of last run):
 
-| Module | Target Coverage |
+| Module | Coverage |
 |---|---|
-| `interface/core/preprocessor.py` | ≥ 95% |
-| `interface/core/predictor.py` | ≥ 90% |
-| `interface/core/dispatcher.py` | ≥ 95% |
-| `interface/core/location_loader.py` | ≥ 95% |
-| `interface/app.py` (UI layer) | ≥ 70% (via AppTest) |
+| `interface/core/preprocessor.py` | 100% |
+| `interface/core/predictor.py` | 87% |
+| `interface/core/dispatcher.py` | 100% |
+| `interface/core/location_loader.py` | 100% |
+| `interface/core/render.py` | 100% |
+| **Total (core)** | **98%** |
 
-> **Note:** The `tests/` directory and the `interface/core/` refactored modules are part of the active development roadmap. The current version has all logic in `interface/app.py`. Tests and the module split are planned for the next sprint.
+An HTML coverage report is written to `htmlcov/index.html` after every `pytest` run — open it in a browser for line-by-line detail.
 
 ---
 
@@ -316,19 +351,18 @@ Target coverage for core logic modules:
 
 - **Image-only input** — no support for live video streams or RTSP camera feeds
 - **Static dispatch** — nearest unit is based on location JSON only; no real-time unit availability
-- **No incident history** — predictions are not stored between sessions
 - **Two areas only** — location data covers Kasarani and Westlands only
 - **No REST API** — the system is a self-contained Streamlit app; no external integrations
-- **Unpinned dependencies** — `requirements.txt` has no version pins
+- **No persistent storage** — incident history resets when the browser tab closes
 
 ### Roadmap
 
-- [ ] Refactor `app.py` into testable `interface/core/` modules
-- [ ] Full pytest test suite (unit + integration + UI)
-- [ ] Pin dependency versions in `requirements.txt`
+- [x] Refactor `app.py` into testable `interface/core/` modules
+- [x] Full pytest test suite (unit + integration + UI)
+- [x] Pin dependency versions in `requirements.txt`
+- [x] Add incident history table (session-based CSV export)
+- [x] Confidence threshold slider to reduce false-positive dispatches
 - [ ] Expand `locations.json` to cover all major Nairobi divisions
-- [ ] Add incident history table (session-based CSV export)
-- [ ] Confidence threshold slider to reduce false-positive dispatches
 - [ ] Video / frame-by-frame analysis for live CCTV feeds
 - [ ] REST API layer (FastAPI) for programmatic integration
 - [ ] Database logging of all incidents with timestamps
