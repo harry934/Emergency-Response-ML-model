@@ -1,9 +1,15 @@
-"""Unit tests for interface/core/render.py (confidence display)."""
+"""Unit tests for interface/core/render.py (confidence bar HTML generation)."""
 from __future__ import annotations
 
-from core.predictor import LABELS
-from core.render import BASE_COLORS, build_confidence_html, format_label
+import pytest
 
+from core.predictor import LABELS
+from core.render import BASE_COLORS, build_confidence_html
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def _html(probs):
     return build_confidence_html(LABELS, probs)
@@ -29,6 +35,51 @@ class TestHtmlContainsAllLabels:
         assert "Normal Activity" in html
 
 
+class TestRiskBadgeHigh:
+    """Confidence ≥ 70% → 'High' risk badge."""
+
+    def test_accident_70_percent_is_high(self):
+        html = build_confidence_html(["Accident"], [0.70])
+        assert "High" in html
+
+    def test_accident_90_percent_is_high(self):
+        html = _html([0.90, 0.05, 0.05])
+        # First occurrence of High corresponds to Accident bar
+        assert "High" in html
+
+    def test_heavy_traffic_75_percent_is_high(self):
+        html = _html([0.05, 0.75, 0.20])
+        assert "High" in html
+
+
+class TestRiskBadgeMedium:
+    """40% ≤ confidence < 70% → 'Medium' risk badge."""
+
+    def test_40_percent_is_medium(self):
+        html = build_confidence_html(["Accident"], [0.40])
+        assert "Medium" in html
+
+    def test_65_percent_is_medium(self):
+        html = build_confidence_html(["Accident"], [0.65])
+        assert "Medium" in html
+
+
+class TestRiskBadgeLow:
+    """Confidence < 40% → 'Low' risk badge."""
+
+    def test_10_percent_is_low(self):
+        html = build_confidence_html(["Accident"], [0.10])
+        assert "Low" in html
+
+    def test_zero_percent_is_low(self):
+        html = build_confidence_html(["Accident"], [0.0])
+        assert "Low" in html
+
+    def test_39_percent_is_low(self):
+        html = build_confidence_html(["Accident"], [0.39])
+        assert "Low" in html
+
+
 class TestPercentageValues:
     def test_percentages_displayed_in_html(self):
         html = _html([0.85, 0.10, 0.05])
@@ -50,34 +101,22 @@ class TestHtmlStructure:
         html = _html([0.33, 0.33, 0.34])
         assert len(html) > 0
 
-    def test_uses_score_row_class(self):
+    def test_contains_style_tag(self):
         html = _html([0.5, 0.3, 0.2])
-        assert html.count('class="score-row"') == 3
+        assert "<style>" in html
+
+    def test_contains_legend(self):
+        html = _html([0.5, 0.3, 0.2])
+        assert "legend" in html
 
     def test_base_colors_present(self):
         html = _html([0.5, 0.3, 0.2])
         for color in BASE_COLORS.values():
             assert color in html
 
-    def test_no_risk_badges(self):
-        html = _html([0.9, 0.05, 0.05])
-        assert "High" not in html
-        assert "Medium" not in html
-        assert "risk-badge" not in html
-
-
-class TestFormatLabel:
-    def test_accident_label(self):
-        assert format_label("Accident") == "Accident"
-
-    def test_heavy_traffic_label(self):
-        assert format_label("HeavyTraffic") == "Heavy Traffic"
-
-    def test_normal_label(self):
-        assert format_label("NormalRoadActivity") == "Normal Activity"
-
-    def test_unknown_label_passthrough(self):
-        assert format_label("Unknown") == "Unknown"
+    def test_three_pred_rows(self):
+        html = _html([0.5, 0.3, 0.2])
+        assert html.count('class="pred-row"') == 3
 
 
 class TestEdgeCases:

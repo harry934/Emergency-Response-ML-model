@@ -1,9 +1,4 @@
-"""UI tests for interface/app.py using streamlit.testing.v1.AppTest.
-
-AppTest drives the Streamlit script without a browser or server.
-Tests patch the model and file uploader because Streamlit 1.51 exposes
-file_uploader as UnknownElement without an upload() helper.
-"""
+"""UI tests for interface/app.py using streamlit.testing.v1.AppTest."""
 from __future__ import annotations
 
 import io
@@ -55,7 +50,6 @@ def _make_mock_model(probs: list[float]) -> MagicMock:
 
 @contextmanager
 def _app_context(probs: list[float], threshold: float | None = None, uploaded: bool = False):
-    """Patch model (and optionally uploader / threshold) then yield an AppTest."""
     import streamlit as st
 
     st.cache_resource.clear()
@@ -85,8 +79,8 @@ class TestAppStartup:
 
     def test_title_is_present(self):
         with _app_context([0.05, 0.05, 0.90]) as at:
-            markdown = [m.value for m in at.markdown]
-            assert any("Emergency Response System" in m for m in markdown)
+            titles = [t.value for t in at.title]
+            assert any("Emergency Response" in t for t in titles)
 
     def test_no_error_on_startup(self):
         with _app_context([0.05, 0.05, 0.90]) as at:
@@ -113,77 +107,44 @@ class TestWidgets:
     def test_confidence_slider_exists(self):
         assert len(self.at.slider) >= 1
 
-    def test_area_selectbox_has_options(self):
-        options = self.at.selectbox[0].options
-        assert len(options) >= 1
-
-    def test_sub_location_selectbox_has_options(self):
-        options = self.at.selectbox[1].options
-        assert len(options) >= 1
-
-
-@skip_no_apptest
-class TestAreaCascade:
-    def test_sub_locations_update_when_area_changes(self):
-        with _app_context([0.05, 0.05, 0.90]) as at:
-            initial_subs = list(at.selectbox[1].options)
-            area_options = at.selectbox[0].options
-            if len(area_options) < 2:
-                pytest.skip("Only one area in locations.json")
-
-            at.selectbox[0].set_value(area_options[1]).run()
-            new_subs = list(at.selectbox[1].options)
-            assert initial_subs != new_subs
-
 
 @skip_no_apptest
 class TestNonAccidentResult:
     def test_no_dispatch_info_shown(self):
         with _app_context([0.05, 0.05, 0.90], uploaded=True) as at:
-            markdown = [m.value for m in at.markdown]
-            assert any("No emergency dispatch required" in m for m in markdown)
+            infos = [i.value for i in at.info]
+            assert any("No emergency dispatch required" in i for i in infos)
 
-    def test_result_metric_shown(self):
+    def test_result_subheader_shown(self):
         with _app_context([0.05, 0.05, 0.90], uploaded=True) as at:
-            assert len(at.metric) >= 1
+            subheaders = [s.value for s in at.subheader]
+            assert any("Result:" in s for s in subheaders)
 
     def test_label_is_normal(self):
         with _app_context([0.05, 0.05, 0.90], uploaded=True) as at:
-            metrics = [m.label for m in at.metric]
-            values = [m.value for m in at.metric]
-            assert "Classification" in metrics
-            assert any("Normal Activity" in str(v) for v in values)
-
-    def test_no_accident_error_shown(self):
-        with _app_context([0.05, 0.90, 0.05], uploaded=True) as at:
-            markdown = [m.value for m in at.markdown]
-            assert not any("Accident detected" in m for m in markdown)
+            subheaders = [s.value for s in at.subheader]
+            assert any("NormalRoadActivity" in s for s in subheaders)
 
 
 @skip_no_apptest
 class TestAccidentResult:
-    def test_accident_status_shown(self):
+    def test_accident_error_banner_shown(self):
         with _app_context([0.95, 0.03, 0.02], uploaded=True) as at:
-            markdown = [m.value for m in at.markdown]
-            assert any("Accident detected" in m for m in markdown)
+            errors = [e.value for e in at.error]
+            assert any("Accident detected" in e for e in errors)
 
-    def test_result_metric_shows_accident(self):
-        with _app_context([0.95, 0.03, 0.02], uploaded=True) as at:
-            values = [m.value for m in at.metric]
-            assert any("Accident" in str(v) for v in values)
-
-    def test_dispatch_map_section_shown(self):
+    def test_dispatch_map_subheader_shown(self):
         with _app_context([0.95, 0.03, 0.02], uploaded=True) as at:
             subheaders = [s.value for s in at.subheader]
-            assert any("Response map" in s for s in subheaders)
+            assert any("Dispatch Map" in s for s in subheaders)
 
 
 @skip_no_apptest
 class TestUncertainResult:
-    def test_uncertain_status_shown_below_threshold(self):
+    def test_warning_shown_below_threshold(self):
         with _app_context([0.85, 0.10, 0.05], threshold=1.0, uploaded=True) as at:
-            markdown = [m.value for m in at.markdown]
-            assert any("threshold" in m.lower() for m in markdown)
+            warnings = [w.value for w in at.warning]
+            assert any("threshold" in w.lower() for w in warnings)
 
 
 @skip_no_apptest
@@ -191,4 +152,4 @@ class TestIncidentHistory:
     def test_history_expander_appears_after_upload(self):
         with _app_context([0.05, 0.05, 0.90], uploaded=True) as at:
             expanders = [e.label for e in at.expander]
-            assert any("Session history" in e for e in expanders)
+            assert any("Incident History" in e for e in expanders)
