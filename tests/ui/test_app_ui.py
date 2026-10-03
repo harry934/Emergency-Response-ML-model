@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import io
+import re
 import sys
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -25,6 +26,10 @@ except ImportError:
 skip_no_apptest = pytest.mark.skipif(
     not _HAS_APPTEST,
     reason="streamlit.testing.v1.AppTest not available (upgrade Streamlit >= 1.18)",
+)
+
+EMOJI_RE = re.compile(
+    "[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F000-\U0001F2FF\U0000FE0F]"
 )
 
 
@@ -49,7 +54,7 @@ def _make_mock_model(probs: list[float]) -> MagicMock:
 
 
 @contextmanager
-def _app_context(probs: list[float], threshold: float | None = None, uploaded: bool = False):
+def _app_context(probs: list[float], uploaded: bool = False):
     import streamlit as st
 
     st.cache_resource.clear()
@@ -58,17 +63,21 @@ def _app_context(probs: list[float], threshold: float | None = None, uploaded: b
     patches = [patch("core.predictor.load_model", return_value=_make_mock_model(probs))]
     if uploaded:
         patches.append(patch("streamlit.file_uploader", return_value=_make_upload_file()))
-    if threshold is not None:
-        patches.append(patch("streamlit.slider", return_value=threshold))
-
-    from contextlib import ExitStack
-
     with ExitStack() as stack:
         for p in patches:
             stack.enter_context(p)
         at = AppTest.from_file(APP_PATH, default_timeout=30)
         at.run()
         yield at
+
+
+def _all_text(at) -> list[str]:
+    texts = [m.value for m in at.markdown]
+    texts += [t.value for t in at.title]
+    texts += [c.value for c in at.caption]
+    for group in (at.error, at.warning, at.success, at.info):
+        texts += [e.value for e in group]
+    return texts
 
 
 @skip_no_apptest
@@ -79,13 +88,15 @@ class TestAppStartup:
 
     def test_title_is_present(self):
         with _app_context([0.05, 0.05, 0.90]) as at:
-            titles = [t.value for t in at.title]
-            assert any("Emergency Response" in t for t in titles)
+            assert any("Road Incident Detection" in t.value for t in at.title)
 
     def test_no_error_on_startup(self):
         with _app_context([0.05, 0.05, 0.90]) as at:
-            errors = [e.value for e in at.error]
-            assert not any("locations.json not found" in e for e in errors)
+            assert len(at.error) == 0
+
+    def test_empty_state_hint_shown(self):
+        with _app_context([0.05, 0.05, 0.90]) as at:
+            assert any("Upload an image" in c.value for c in at.caption)
 
 
 @skip_no_apptest
@@ -95,61 +106,94 @@ class TestWidgets:
         with _app_context([0.05, 0.05, 0.90]) as at:
             self.at = at
 
-    def test_area_selectbox_exists(self):
-        assert len(self.at.selectbox) >= 1
-
-    def test_sub_location_selectbox_exists(self):
-        assert len(self.at.selectbox) >= 2
+    def test_area_and_camera_selectboxes(self):
+        labels = [s.label for s in self.at.selectbox]
+        assert "Area" in labels
+        assert "Camera" in labels
 
     def test_file_uploader_exists(self):
         assert len(self.at.get("file_uploader")) >= 1
 
-    def test_confidence_slider_exists(self):
-        assert len(self.at.slider) >= 1
+    def test_no_settings_controls(self):
+        assert len(self.at.slider) == 0
+        assert not any(e.label == "Settings" for e in self.at.expander)
+
+    def test_no_sidebar_content(self):
+        assert len(self.at.sidebar.children) == 0
+
+    def test_section_headings_present_without_numbers(self):
+        markdown = " ".join(m.value for m in self.at.markdown)
+        assert "Location" in markdown
+        assert "Upload image" in markdown
+        assert not re.search(r"\d\. (Location|Upload image)", markdown)
+
+
+@skip_no_apptest
+class TestAreaCascade:
+    def test_cameras_update_when_area_changes(self):
+        with _app_context([0.05, 0.05, 0.90]) as at:
+            areas = at.selectbox[0].options
+            if len(areas) < 2:
+                pytest.skip("Only one area in locations.json")
+            before = list(at.selectbox[1].options)
+            at.selectbox[0].set_value(areas[1]).run()
+            assert list(at.selectbox[1].options) != before
 
 
 @skip_no_apptest
 class TestNonAccidentResult:
-    def test_no_dispatch_info_shown(self):
+    def test_success_message_shown(self):
         with _app_context([0.05, 0.05, 0.90], uploaded=True) as at:
-            infos = [i.value for i in at.info]
-            assert any("No emergency dispatch required" in i for i in infos)
+            assert any("No emergency response required" in s.value for s in at.success)
 
-    def test_result_subheader_shown(self):
+    def test_metrics_shown(self):
         with _app_context([0.05, 0.05, 0.90], uploaded=True) as at:
-            subheaders = [s.value for s in at.subheader]
-            assert any("Result:" in s for s in subheaders)
+            metrics = {m.label: m.value for m in at.metric}
+            assert metrics["Classification"] == "Normal Activity"
+            assert metrics["Confidence"] == "90.0%"
 
-    def test_label_is_normal(self):
+    def test_three_progress_bars(self):
         with _app_context([0.05, 0.05, 0.90], uploaded=True) as at:
-            subheaders = [s.value for s in at.subheader]
-            assert any("NormalRoadActivity" in s for s in subheaders)
+            assert len(at.get("progress")) == 3
+
+    def test_no_emergency_section(self):
+        with _app_context([0.05, 0.90, 0.05], uploaded=True) as at:
+            assert len(at.error) == 0
+            assert not any("Emergency response" in m.value for m in at.markdown)
 
 
 @skip_no_apptest
 class TestAccidentResult:
-    def test_accident_error_banner_shown(self):
+    def test_accident_error_shown(self):
         with _app_context([0.95, 0.03, 0.02], uploaded=True) as at:
-            errors = [e.value for e in at.error]
-            assert any("Accident detected" in e for e in errors)
+            assert any("Accident detected" in e.value for e in at.error)
 
-    def test_dispatch_map_subheader_shown(self):
+    def test_emergency_section_shown(self):
         with _app_context([0.95, 0.03, 0.02], uploaded=True) as at:
-            subheaders = [s.value for s in at.subheader]
-            assert any("Dispatch Map" in s for s in subheaders)
+            markdown = " ".join(m.value for m in at.markdown)
+            assert "Emergency response" in markdown
+            assert "Nearest hospital" in markdown
+            assert "Nearest police station" in markdown
 
 
 @skip_no_apptest
 class TestUncertainResult:
     def test_warning_shown_below_threshold(self):
-        with _app_context([0.85, 0.10, 0.05], threshold=1.0, uploaded=True) as at:
-            warnings = [w.value for w in at.warning]
-            assert any("threshold" in w.lower() for w in warnings)
+        with _app_context([0.40, 0.35, 0.25], uploaded=True) as at:
+            assert any("threshold" in w.value.lower() for w in at.warning)
 
 
 @skip_no_apptest
-class TestIncidentHistory:
+class TestHistory:
     def test_history_expander_appears_after_upload(self):
         with _app_context([0.05, 0.05, 0.90], uploaded=True) as at:
-            expanders = [e.label for e in at.expander]
-            assert any("Incident History" in e for e in expanders)
+            assert any(e.label == "History" for e in at.expander)
+
+
+@skip_no_apptest
+class TestNoEmojis:
+    @pytest.mark.parametrize("probs", [[0.05, 0.05, 0.90], [0.95, 0.03, 0.02]])
+    def test_rendered_text_has_no_emojis(self, probs):
+        with _app_context(probs, uploaded=True) as at:
+            offenders = [t for t in _all_text(at) if EMOJI_RE.search(t)]
+            assert not offenders, f"Emojis found in: {offenders}"

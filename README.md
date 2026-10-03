@@ -44,7 +44,9 @@ The system is scoped to the Nairobi metropolitan area and uses real geographic c
 ## Features
 
 - **3-class image classifier** — Accident / Heavy Traffic / Normal Road Activity
-- **Confidence visualization** — animated progress bars with colour-coded risk badges (Low / Medium / High) for each class
+- **Simple single-page UI** — sections for Location, Upload image, Result and Emergency response, with SVG icons
+- **Light and dark mode** — switch from the app menu (top right) > Settings > Theme, or follow the system setting
+- **Confidence visualization** — a plain progress bar per class showing the model's probability
 - **Automatic emergency dispatch** — nearest hospital and police station details surface only when an accident is detected
 - **Interactive Folium map** — shows the CCTV point, hospital, and police station with connecting route lines
 - **General emergency hotlines** — Kenya Police Control Room and ambulance services always available
@@ -155,11 +157,9 @@ streamlit run interface/app.py
 
 The app opens at `http://localhost:8501` in your browser automatically.
 
-**Sidebar controls**
+**Light / dark mode:** open the menu (top right) > Settings > Theme and pick Light, Dark or "Use system setting". Both colour themes are defined in `.streamlit/config.toml`.
 
-| Control | Purpose |
-|---|---|
-| Confidence threshold slider | Minimum probability required before an alert fires. Predictions below this show "Uncertain" instead of triggering dispatch. Default 0.50 (50%). |
+**Alert threshold:** predictions with a top confidence below 50% are shown as "Uncertain" instead of triggering dispatch. Change `CONFIDENCE_THRESHOLD` in `interface/app.py` to adjust it.
 
 **GitHub Codespaces:** The dev container in `.devcontainer/devcontainer.json` automatically installs dependencies and starts the Streamlit server on port 8501 when you open the repo in Codespaces.
 
@@ -167,16 +167,17 @@ The app opens at `http://localhost:8501` in your browser automatically.
 
 ## Usage
 
-1. **Select Major Area** — choose a Nairobi area from the dropdown (e.g. "Kasarani / Roysambu / Zimmerman")
-2. **Select Sub-Location / CCTV Point** — pick the specific CCTV camera location
-3. **Upload a road image** — JPEG or PNG, any resolution (resized internally to 224×224)
-4. The model classifies the image and displays:
-   - The predicted class label
-   - Confidence bars for all three classes with risk level badges
-5. **If Accident is detected:**
-   - Contact details for the nearest hospital and police station are shown
-   - General emergency hotlines (Kenya Police, Red Cross, St. John Ambulance) are listed
-   - An interactive map shows the CCTV point, hospital, and police station with route lines
+The page is a single column of sections, top to bottom:
+
+- **Location** — pick the **Area** (e.g. "Kasarani / Roysambu / Zimmerman") and the **Camera** (CCTV point)
+- **Upload image** — JPEG or PNG, any resolution (resized internally to 224×224); a preview is shown
+- **Result** — one status message, the predicted classification, its confidence and a progress bar per class:
+  - Accident → red alert "Accident detected"
+  - Below the alert threshold (50%) → yellow "Uncertain" warning to check the image manually
+  - Heavy Traffic / Normal Activity → green "No emergency response required"
+- **Emergency response** (only for accidents) — nearest hospital and police station contacts, general hotlines (Kenya Police, Red Cross, St. John Ambulance) and a map with the camera, hospital and police station
+
+Every analysis is logged in the **History** expander at the bottom, which can be exported to CSV.
 
 ---
 
@@ -186,6 +187,8 @@ The app opens at `http://localhost:8501` in your browser automatically.
 Emergency-Response-ML-model/
 ├── .devcontainer/
 │   └── devcontainer.json           # GitHub Codespaces configuration
+├── .streamlit/
+│   └── config.toml                 # Streamlit theme (light, red accent)
 ├── interface/
 │   ├── app.py                      # Thin Streamlit UI (calls core modules)
 │   ├── core/
@@ -194,9 +197,10 @@ Emergency-Response-ML-model/
 │   │   ├── predictor.py            # Model loading and inference
 │   │   ├── dispatcher.py           # Accident → dispatch dict logic
 │   │   ├── location_loader.py      # Load + validate locations.json
-│   │   └── render.py               # Confidence bar HTML generation
+│   │   ├── icons.py                # Inline SVG icon set
+│   │   └── render.py               # Display labels, section headings, icon CSS
 │   └── assets/
-│       ├── logo.svg                # Project logo (shown in sidebar)
+│       ├── logo.svg                # Project logo (shown in the header)
 │       ├── safety1.svg             # "Drive Safely" graphic
 │       └── safety2.svg             # "Fast Response" graphic
 ├── tests/
@@ -206,7 +210,7 @@ Emergency-Response-ML-model/
 │   │   ├── test_predictor.py
 │   │   ├── test_dispatcher.py
 │   │   ├── test_location_loader.py
-│   │   └── test_confidence_bars.py
+│   │   └── test_render.py
 │   ├── integration/
 │   │   ├── test_model_loading.py
 │   │   └── test_end_to_end.py
@@ -259,7 +263,7 @@ tests/
 │   ├── test_predictor.py         # Inference output shape, label mapping, fallback mode
 │   ├── test_dispatcher.py        # Dispatch dict contents per predicted class
 │   ├── test_location_loader.py   # JSON loading, missing file, malformed JSON
-│   └── test_confidence_bars.py   # HTML output correctness for known inputs
+│   └── test_render.py            # Display labels, SVG icons, section headings
 ├── integration/
 │   ├── test_model_loading.py     # Real model.keras load, input/output shape checks
 │   └── test_end_to_end.py        # Full pipeline: image → preprocess → predict → dispatch
@@ -275,7 +279,7 @@ tests/
 | `test_predictor.py` | Returns `(label, probs)` tuple; label is one of the 3 valid classes; probabilities sum to ~1.0; fallback (no model) returns normalized random probs |
 | `test_dispatcher.py` | Accident class → dict with `hospital`, `police`, `hotlines` keys; non-accident → `None`; missing keys in area_info → `KeyError` |
 | `test_location_loader.py` | Valid JSON loads correctly; missing file → `FileNotFoundError`; malformed JSON → `json.JSONDecodeError`; schema validation for required keys |
-| `test_confidence_bars.py` | HTML contains all 3 labels; risk badge is "High" when confidence ≥ 70%; "Low" when < 40%; percentages sum to ~100 |
+| `test_render.py` | Display names for each class; every required icon is valid SVG using `currentColor`; unknown icons raise `KeyError`; section heading HTML contains icon and title |
 
 #### Integration Tests
 
@@ -292,9 +296,12 @@ tests/
 | Area dropdown | Options match keys in `locations.json` |
 | Sub-location dropdown | Updates when major area changes |
 | File uploader | Present in widget tree |
-| Non-accident image uploaded | `st.info("No emergency dispatch required.")` rendered |
-| Accident image uploaded | `st.error` with "⚠️ Accident detected!" rendered; hospital/police info shown |
-| Confidence bars | HTML markdown component rendered after image upload |
+| Non-accident image uploaded | `st.success("No emergency response required.")`; no emergency section |
+| Accident image uploaded | `st.error` "Accident detected…"; Emergency response section with hospital/police shown |
+| Low-confidence image | `st.warning` about the alert threshold; no dispatch |
+| Confidence bars | One `st.progress` bar per class after upload |
+| History | Each analysis adds a row; CSV export available |
+| No emojis | No emoji characters anywhere in the rendered app |
 
 ### Running Tests
 
