@@ -190,6 +190,13 @@ class TestHistory:
             assert any(e.label == "History" for e in at.expander)
 
 
+class TestMapTiles:
+    def test_no_tile_provider_requiring_api_key(self):
+        source = Path(APP_PATH).read_text(encoding="utf-8")
+        assert "CartoDB" not in source
+        assert "server.arcgisonline.com" in source
+
+
 @skip_no_apptest
 class TestNoEmojis:
     @pytest.mark.parametrize("probs", [[0.05, 0.05, 0.90], [0.95, 0.03, 0.02]])

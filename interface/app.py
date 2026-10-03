@@ -20,6 +20,12 @@ LOCATIONS_PATH = os.path.join(BASE_DIR, "..", "locations.json")
 LOGO_PATH = os.path.join(BASE_DIR, "assets", "logo.svg")
 CONFIDENCE_THRESHOLD = 0.5
 
+# Esri basemaps need no API key (CARTO tiles now do).
+ESRI_TILE_ROOT = "https://server.arcgisonline.com/ArcGIS/rest/services"
+ESRI_ATTRIBUTION = "Tiles &copy; Esri"
+ESRI_LIGHT_LAYERS = ["World_Street_Map"]
+ESRI_DARK_LAYERS = ["Canvas/World_Dark_Gray_Base", "Canvas/World_Dark_Gray_Reference"]
+
 st.set_page_config(
     page_title="Emergency Response",
     page_icon=":material/shield:",
@@ -155,8 +161,14 @@ else:
                 center = [selected_sub["lat"], selected_sub["lon"]]
                 hospital = [dispatch["hospital"]["lat"], dispatch["hospital"]["lon"]]
                 police = [dispatch["police"]["lat"], dispatch["police"]["lon"]]
-                tiles = "CartoDB dark_matter" if _is_dark_theme() else "CartoDB positron"
-                m = folium.Map(location=center, zoom_start=14, tiles=tiles)
+                m = folium.Map(location=center, zoom_start=14, tiles=None)
+                layers = ESRI_DARK_LAYERS if _is_dark_theme() else ESRI_LIGHT_LAYERS
+                for layer in layers:
+                    folium.TileLayer(
+                        tiles=f"{ESRI_TILE_ROOT}/{layer}/MapServer/tile/{{z}}/{{y}}/{{x}}",
+                        attr=ESRI_ATTRIBUTION,
+                        max_zoom=16,
+                    ).add_to(m)
                 folium.Marker(center, tooltip=f"Camera: {selected_sub_name}",
                               icon=folium.Icon(color="red", icon="camera")).add_to(m)
                 folium.Marker(hospital, tooltip=f"Hospital: {dispatch['hospital']['name']}",
